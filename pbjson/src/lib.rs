@@ -22,6 +22,12 @@ pub mod private {
     /// Re-export base64
     pub use base64;
 
+    /// Encode bytes as standard base64 (compatibility wrapper for generated code).
+    pub fn base64_encode(input: impl AsRef<[u8]>) -> String {
+        use base64::Engine as _;
+        base64::engine::general_purpose::STANDARD.encode(input)
+    }
+
     use serde::de::Visitor;
     use serde::Deserialize;
     use std::borrow::Cow;
@@ -69,7 +75,24 @@ pub mod private {
         where
             E: serde::de::Error,
         {
-            let decoded = base64::decode_config(s, base64::STANDARD)
+            use base64::Engine as _;
+            use base64::engine::general_purpose::{
+                GeneralPurpose, GeneralPurposeConfig, STANDARD, URL_SAFE,
+            };
+            use base64::alphabet;
+
+            // Use indulgent decoding to accept inputs with or without padding.
+            let indulgent_standard = GeneralPurpose::new(
+                &alphabet::STANDARD,
+                GeneralPurposeConfig::new().with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+            );
+            let indulgent_url_safe = GeneralPurpose::new(
+                &alphabet::URL_SAFE,
+                GeneralPurposeConfig::new().with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+            );
+
+            let decoded = indulgent_standard
+                .decode(s)
                 .or_else(|e| match e {
                     // Either standard or URL-safe base64 encoding are accepted
                     //
@@ -78,7 +101,7 @@ pub mod private {
                     // Therefore if we error out on those characters, try again with
                     // the URL-safe character set
                     base64::DecodeError::InvalidByte(_, c) if c == b'-' || c == b'_' => {
-                        base64::decode_config(s, base64::URL_SAFE)
+                        indulgent_url_safe.decode(s)
                     }
                     _ => Err(e),
                 })
@@ -111,18 +134,20 @@ pub mod private {
 
         #[test]
         fn test_bytes() {
+            use base64::Engine as _;
             for _ in 0..20 {
                 let mut rng = thread_rng();
                 let len = rng.gen_range(50..100);
                 let raw: Vec<_> = std::iter::from_fn(|| Some(rng.gen())).take(len).collect();
 
-                for config in [
-                    base64::STANDARD,
-                    base64::STANDARD_NO_PAD,
-                    base64::URL_SAFE,
-                    base64::URL_SAFE_NO_PAD,
-                ] {
-                    let encoded = base64::encode_config(&raw, config);
+                let engines = [
+                    base64::engine::general_purpose::STANDARD,
+                    base64::engine::general_purpose::STANDARD_NO_PAD,
+                    base64::engine::general_purpose::URL_SAFE,
+                    base64::engine::general_purpose::URL_SAFE_NO_PAD,
+                ];
+                for engine in engines {
+                    let encoded = engine.encode(&raw);
 
                     let deserializer = BorrowedStrDeserializer::<'_, Error>::new(&encoded);
                     let a: Bytes = BytesDeserialize::deserialize(deserializer).unwrap().0;

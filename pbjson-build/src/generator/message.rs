@@ -303,7 +303,7 @@ fn write_serialize_variable<W: Write>(
                 FieldType::Scalar(ScalarType::Bytes) => {
                     writeln!(
                         writer,
-                        "{}.map(|(k, v)| (k, pbjson::private::base64::encode(v))).collect();",
+                        "{}.map(|(k, v)| (k, pbjson::private::base64_encode(v))).collect();",
                         Indent(indent + 1)
                     )?;
                 }
@@ -350,7 +350,7 @@ fn write_serialize_scalar_variable<W: Write>(
 ) -> Result<()> {
     let conversion = match scalar {
         ScalarType::I64 | ScalarType::U64 => "ToString::to_string",
-        ScalarType::Bytes => "pbjson::private::base64::encode",
+        ScalarType::Bytes => "pbjson::private::base64_encode",
         _ => {
             return writeln!(
                 writer,
